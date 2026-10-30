@@ -1,0 +1,78 @@
+name: Build APK JurisApp
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Permite rodar manualmente pela interface do GitHub
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          ndk-version: r26b
+          emulator: false
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Instalar EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Configurar EAS (build local sem conta)
+        run: |
+          # Build local usando expo (não precisa de conta Expo)
+          npx expo install --fix
+          npx expo prebuild --platform android --clean
+
+      - name: Build APK (debug)
+        run: |
+          cd android
+          ./gradlew assembleDebug
+        env:
+          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: jurisapp-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Criar Release (apenas em tags)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          generate_release_notes: true
